@@ -121,10 +121,66 @@
             <div class="col-md-12">
                 <div class="card mb-4">
                     <div class="card-header bg-success text-white">
-                        <h5 class="mb-0"><i class="bi bi-check-circle"></i> Recommendations</h5>
+                        <h5 class="mb-0"><i class="bi bi-lightbulb-fill"></i> AI-Powered Recommendations for Sales Team</h5>
+                        <small class="text-white-50">Actionable insights to boost revenue</small>
                     </div>
                     <div class="card-body">
-                        <div style="white-space: pre-wrap;">@Model.Insight.Recommendations</div>
+                        @if (Model.Insight.ActionableRecommendations.Any())
+                        {
+                            <div class="row">
+                                @foreach (var rec in Model.Insight.ActionableRecommendations)
+                                {
+                                    var badgeClass = rec.Priority switch
+                                    {
+                                        "High" => "danger",
+                                        "Medium" => "warning",
+                                        "Low" => "info",
+                                        _ => "secondary"
+                                    };
+                                    var iconClass = rec.Category switch
+                                    {
+                                        "Upsell" => "bi-graph-up-arrow",
+                                        "Pricing" => "bi-currency-dollar",
+                                        "Marketing" => "bi-megaphone",
+                                        "Inventory" => "bi-box-seam",
+                                        "Customer" => "bi-people",
+                                        _ => "bi-star"
+                                    };
+                                    
+                                    <div class="col-md-6 mb-3">
+                                        <div class="card h-100 border-start border-success border-4">
+                                            <div class="card-body">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <h6 class="card-title mb-0">
+                                                        <i class="bi @iconClass text-success"></i>
+                                                        @rec.Title
+                                                    </h6>
+                                                    <span class="badge bg-@badgeClass">@rec.Priority Priority</span>
+                                                </div>
+                                                <p class="card-text text-muted small mb-2">@rec.Description</p>
+                                                <div class="alert alert-success mb-0 py-2">
+                                                    <strong><i class="bi bi-hand-thumbs-up"></i> Action:</strong> @rec.Action
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(rec.Category))
+                                                {
+                                                    <small class="text-muted">
+                                                        <span class="badge bg-light text-dark mt-2">@rec.Category</span>
+                                                    </small>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <!-- Fallback to text-based recommendations -->
+                            <div class="alert alert-info" role="alert">
+                                <strong><i class="bi bi-info-circle"></i> Recommendations:</strong>
+                                <div class="mt-2" style="white-space: pre-wrap;">@Model.Insight.Recommendations</div>
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
