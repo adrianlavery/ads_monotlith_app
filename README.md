@@ -20,6 +20,10 @@ It includes product listing, shopping cart, checkout, and inventory management â
   - `POST /api/checkout`
   - `GET /api/orders/{id}`
 - Health-check endpoint at `/health`
+- **NEW**: Dummy data generation for testing (DEV/QA only)
+  - `POST /api/admin/generate-dummy-data?count={number}` - Generate test orders
+  - `DELETE /api/admin/cleanup-dummy-data` - Remove test data
+  - See [DUMMY_DATA_GENERATION.md](DUMMY_DATA_GENERATION.md) for details
 - Ready for decomposition into microservices
 
 ---
