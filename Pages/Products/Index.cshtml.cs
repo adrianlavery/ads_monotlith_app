@@ -99,38 +99,18 @@ namespace RetailMonolith.Pages.Products
             }
         }
 
-        public async Task OnPostAsync(int productId)
+        public async Task<IActionResult> OnPostAddToCartAsync(int productId)
         {
-            // Add to cart logic will go here in the future
-            var p = await _db.Products.FindAsync(productId);
-            if (p is null) return;
-
-            var cart = await _db.Carts
-                .Include(c => c.Lines)
-                .FirstOrDefaultAsync(c => c.CustomerId == "guest")
-                ?? new Models.Cart { CustomerId = "guest" };
-
-            //if(cart.Id == 0)
-            //{
-            //    _db.Carts.Add(cart);
-            //};
-
-            if (cart is null)
+            var product = await _db.Products.FindAsync(productId);
+            if (product is null || !product.IsActive)
             {
-                cart = new Models.Cart { CustomerId = "guest" };
-                _db.Carts.Add(cart);
-                await _db.SaveChangesAsync();
+                return RedirectToPage();
             }
 
-            cart.Lines.Add(new CartLine
-            {
-                Sku = p.Sku,
-                Name = p.Name,
-                UnitPrice = p.Price,
-                Quantity = 1
-            });
-            await _cartService.AddToCartAsync("guest", productId);
-            Response.Redirect("/Cart");
+            // Add to cart - this already handles checking for existing items and updating quantity
+            await _cartService.AddToCartAsync("guest", productId, 1);
+            
+            return RedirectToPage("/Cart/Index");
         }
     }
 }

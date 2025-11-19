@@ -20,9 +20,8 @@ namespace RetailMonolith.Pages.Cart
 
 
         //map the cart state in memory without mapping directly to the database
-        // Each line represents an item in the cart with its name, quantity, and price
-        //is this a good way to represent a cart in memory?
-        public List<(string Name, int Quantity, decimal Price)> Lines { get; set; } = new(); 
+        // Each line represents an item in the cart with its ID, name, quantity, and price
+        public List<(int Id, string Name, int Quantity, decimal Price)> Lines { get; set; } = new(); 
 
         public decimal Total => Lines.Sum(line => line.Price * line.Quantity);
 
@@ -31,10 +30,22 @@ namespace RetailMonolith.Pages.Cart
         {
             var cart = await _cartService.GetCartWithLinesAsync("guest");
             Lines = cart.Lines
-                .Select(line => (line.Name, line.Quantity, line.UnitPrice))
+                .Select(line => (line.Id, line.Name, line.Quantity, line.UnitPrice))
                 .ToList();
         }
 
+        public async Task<IActionResult> OnPostUpdateQuantityAsync(int cartLineId, int newQuantity)
+        {
+            if (newQuantity < 0) newQuantity = 0;
+            await _cartService.UpdateQuantityAsync("guest", cartLineId, newQuantity);
+            return RedirectToPage();
+        }
+
+        public async Task<IActionResult> OnPostRemoveItemAsync(int cartLineId)
+        {
+            await _cartService.RemoveItemAsync("guest", cartLineId);
+            return RedirectToPage();
+        }
 
     }
 }

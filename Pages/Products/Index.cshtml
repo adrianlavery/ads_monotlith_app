@@ -85,9 +85,11 @@
                                 <p class="card-text text-muted mb-2">@product.Category</p>
                                 <h6 class="fw-semibold mb-3">@product.Price.ToString("C")</h6>
 
-                                <form method="post" asp-page-handler="AddToCart">
+                                <form method="post">
                                     <input type="hidden" name="productId" value="@product.Id" />
-                                    <button type="submit" class="btn btn-primary">Add to Cart</button>
+                                    <button type="submit" class="btn btn-primary" formaction="/Products?handler=AddToCart">
+                                        <i class="bi bi-cart-plus"></i> Add to Cart
+                                    </button>
                                 </form>
                             </div>
                         </div>

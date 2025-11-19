@@ -83,5 +83,44 @@ namespace RetailMonolith.Services
             //cart won't be null as we are creating a new instance of a cart if it is null
             return cart;
         }
+
+        public async Task UpdateQuantityAsync(string customerId, int cartLineId, int newQuantity, CancellationToken ct = default)
+        {
+            var cart = await _db.Carts
+                .Include(c => c.Lines)
+                .FirstOrDefaultAsync(c => c.CustomerId == customerId, ct);
+
+            if (cart is null) return;
+
+            var line = cart.Lines.FirstOrDefault(l => l.Id == cartLineId);
+            if (line is null) return;
+
+            if (newQuantity <= 0)
+            {
+                cart.Lines.Remove(line);
+            }
+            else
+            {
+                line.Quantity = newQuantity;
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task RemoveItemAsync(string customerId, int cartLineId, CancellationToken ct = default)
+        {
+            var cart = await _db.Carts
+                .Include(c => c.Lines)
+                .FirstOrDefaultAsync(c => c.CustomerId == customerId, ct);
+
+            if (cart is null) return;
+
+            var line = cart.Lines.FirstOrDefault(l => l.Id == cartLineId);
+            if (line is not null)
+            {
+                cart.Lines.Remove(line);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
     }
 }
