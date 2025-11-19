@@ -88,7 +88,7 @@ namespace RetailMonolith.Services
                 // Call Azure OpenAI
                 var chatClient = _aiClient.GetChatClient(_deploymentName);
                 
-                var messages = new List<ChatMessage>
+                var messages = new List<OpenAI.Chat.ChatMessage>
                 {
                     new SystemChatMessage("You are a retail analytics expert. Analyze sales data and provide actionable insights in a clear, concise manner. Focus on trends, patterns, and specific recommendations."),
                     new UserChatMessage(prompt)
