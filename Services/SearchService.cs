@@ -1,0 +1,299 @@
+using Azure;
+using Azure.AI.OpenAI;
+using Azure.Search.Documents;
+using Azure.Search.Documents.Indexes;
+using Azure.Search.Documents.Indexes.Models;
+using Azure.Search.Documents.Models;
+using Microsoft.EntityFrameworkCore;
+using OpenAI.Embeddings;
+using RetailMonolith.Data;
+using RetailMonolith.Models;
+
+namespace RetailMonolith.Services
+{
+    public class SearchService : ISearchService
+    {
+        private readonly AppDbContext _db;
+        private readonly ILogger<SearchService> _logger;
+        private readonly AzureOpenAIConfiguration _openAIConfig;
+        private readonly AzureSearchConfiguration _searchConfig;
+        private SearchIndexClient? _indexClient;
+        private SearchClient? _searchClient;
+        private AzureOpenAIClient? _openAIClient;
+        private EmbeddingClient? _embeddingClient;
+
+        public SearchService(
+            AppDbContext db,
+            ILogger<SearchService> logger,
+            AzureOpenAIConfiguration openAIConfig,
+            AzureSearchConfiguration searchConfig)
+        {
+            _db = db;
+            _logger = logger;
+            _openAIConfig = openAIConfig;
+            _searchConfig = searchConfig;
+        }
+
+        private void EnsureClientsInitialized()
+        {
+            if (_indexClient != null && _openAIClient != null)
+                return;
+
+            // Validate Azure Search configuration
+            if (string.IsNullOrWhiteSpace(_searchConfig.Endpoint))
+            {
+                throw new InvalidOperationException(
+                    "Azure Search endpoint is not configured. Please set the AZURE_SEARCH_ENDPOINT environment variable.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_searchConfig.ApiKey))
+            {
+                throw new InvalidOperationException(
+                    "Azure Search API key is not configured. Please set the AZURE_SEARCH_API_KEY environment variable.");
+            }
+
+            // Validate Azure OpenAI configuration
+            if (string.IsNullOrWhiteSpace(_openAIConfig.Endpoint))
+            {
+                throw new InvalidOperationException(
+                    "Azure OpenAI endpoint is not configured. Please set the AZURE_OPENAI_ENDPOINT environment variable.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_openAIConfig.ApiKey))
+            {
+                throw new InvalidOperationException(
+                    "Azure OpenAI API key is not configured. Please set the AZURE_OPENAI_API_KEY environment variable.");
+            }
+
+            // Initialize Azure Search clients
+            var searchCredential = new AzureKeyCredential(_searchConfig.ApiKey);
+            _indexClient = new SearchIndexClient(new Uri(_searchConfig.Endpoint), searchCredential);
+            _searchClient = _indexClient.GetSearchClient(_searchConfig.IndexName);
+
+            // Initialize Azure OpenAI clients
+            var openAICredential = new AzureKeyCredential(_openAIConfig.ApiKey);
+            _openAIClient = new AzureOpenAIClient(new Uri(_openAIConfig.Endpoint), openAICredential);
+            _embeddingClient = _openAIClient.GetEmbeddingClient(_openAIConfig.EmbeddingDeployment);
+        }
+
+        public async Task InitializeIndexAsync(CancellationToken ct = default)
+        {
+            EnsureClientsInitialized();
+            
+            try
+            {
+                _logger.LogInformation("Initializing search index: {IndexName}", _searchConfig.IndexName);
+
+                // Delete existing index if it exists (to allow schema changes)
+                try
+                {
+                    await _indexClient!.DeleteIndexAsync(_searchConfig.IndexName, cancellationToken: ct);
+                    _logger.LogInformation("Deleted existing index, waiting for deletion to complete");
+                    
+                    // Poll until index is truly deleted
+                    await WaitForIndexDeletionAsync(_searchConfig.IndexName, ct);
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+                {
+                    _logger.LogInformation("No existing index to delete");
+                }
+
+                // Define the vector search configuration
+                var vectorSearch = new VectorSearch();
+                vectorSearch.Profiles.Add(new VectorSearchProfile("vector-profile", "hnsw-config"));
+                vectorSearch.Algorithms.Add(new HnswAlgorithmConfiguration("hnsw-config"));
+
+                // Define the fields for the index
+                var fieldBuilder = new FieldBuilder();
+                var searchFields = fieldBuilder.Build(typeof(ProductSearchDocument));
+
+                // Create the search index
+                var definition = new SearchIndex(_searchConfig.IndexName, searchFields)
+                {
+                    VectorSearch = vectorSearch
+                };
+
+                await _indexClient!.CreateOrUpdateIndexAsync(definition, cancellationToken: ct);
+                _logger.LogInformation("Search index initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing search index");
+                throw;
+            }
+        }
+
+        public async Task IndexProductsAsync(CancellationToken ct = default)
+        {
+            EnsureClientsInitialized();
+            
+            try
+            {
+                _logger.LogInformation("Starting product indexing");
+
+                // Fetch all active products
+                var products = await _db.Products
+                    .Where(p => p.IsActive)
+                    .ToListAsync(ct);
+
+                _logger.LogInformation("Found {Count} active products to index", products.Count);
+
+                // Convert products to search documents with embeddings
+                var searchDocuments = new List<ProductSearchDocument>();
+                
+                foreach (var product in products)
+                {
+                    // Generate text for embedding
+                    var textToEmbed = $"{product.Name} {product.Description ?? ""} {product.Category ?? ""}";
+                    
+                    // Generate embedding
+                    var embedding = await GenerateEmbeddingAsync(textToEmbed, ct);
+
+                    var searchDoc = new ProductSearchDocument
+                    {
+                        Id = product.Id.ToString(),
+                        Sku = product.Sku,
+                        Name = product.Name,
+                        Description = product.Description,
+                        Category = product.Category,
+                        Price = (double)product.Price,
+                        IsActive = product.IsActive,
+                        Embedding = embedding
+                    };
+
+                    searchDocuments.Add(searchDoc);
+                }
+
+                // Upload documents to Azure AI Search
+                if (searchDocuments.Any())
+                {
+                    var batch = IndexDocumentsBatch.Upload(searchDocuments);
+                    await _searchClient!.IndexDocumentsAsync(batch, cancellationToken: ct);
+                    _logger.LogInformation("Successfully indexed {Count} products", searchDocuments.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("No products to index");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error indexing products");
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<Product>> SearchProductsAsync(string query, int maxResults = 10, CancellationToken ct = default)
+        {
+            EnsureClientsInitialized();
+            
+            try
+            {
+                _logger.LogInformation("Searching for products with query: {Query}", query);
+
+                // Generate embedding for the search query
+                var queryEmbedding = await GenerateEmbeddingAsync(query, ct);
+
+                // Configure the search options with hybrid search (vector + keyword)
+                var searchOptions = new SearchOptions
+                {
+                    Size = maxResults,
+                    Select = { "Id", "Sku", "Name", "Description", "Category", "Price", "IsActive" },
+                    Filter = "IsActive eq true"
+                };
+
+                // Add vector search - convert IReadOnlyList to ReadOnlyMemory
+                var vectorQuery = new VectorizedQuery(new ReadOnlyMemory<float>((float[])queryEmbedding))
+                {
+                    KNearestNeighborsCount = maxResults,
+                    Fields = { "Embedding" }
+                };
+                searchOptions.VectorSearch = new VectorSearchOptions();
+                searchOptions.VectorSearch.Queries.Add(vectorQuery);
+
+                // Execute the search
+                var response = await _searchClient!.SearchAsync<ProductSearchDocument>(query, searchOptions, ct);
+
+                // Extract product IDs from search results
+                var productIds = new List<int>();
+                await foreach (var result in response.Value.GetResultsAsync())
+                {
+                    if (int.TryParse(result.Document.Id, out int productId))
+                    {
+                        productIds.Add(productId);
+                    }
+                }
+
+                // Retrieve full product details from database maintaining search order
+                if (productIds.Any())
+                {
+                    var products = await _db.Products
+                        .Where(p => productIds.Contains(p.Id))
+                        .ToListAsync(ct);
+
+                    // Maintain the order from search results
+                    var orderedProducts = productIds
+                        .Select(id => products.FirstOrDefault(p => p.Id == id))
+                        .Where(p => p != null)
+                        .ToList();
+
+                    _logger.LogInformation("Found {Count} products matching query", orderedProducts.Count);
+                    return orderedProducts!;
+                }
+
+                return Enumerable.Empty<Product>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products");
+                throw;
+            }
+        }
+
+        private async Task<IReadOnlyList<float>> GenerateEmbeddingAsync(string text, CancellationToken ct = default)
+        {
+            EnsureClientsInitialized();
+            
+            try
+            {
+                var response = await _embeddingClient!.GenerateEmbeddingAsync(text, cancellationToken: ct);
+                return response.Value.ToFloats().ToArray();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for text: {Text}", text);
+                throw;
+            }
+        }
+
+        private async Task WaitForIndexDeletionAsync(string indexName, CancellationToken ct = default)
+        {
+            const int maxAttempts = 30; // 30 attempts
+            const int delayMs = 500; // 500ms between attempts (15 seconds total)
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    // Try to get the index - if it exists, deletion isn't complete
+                    await _indexClient!.GetIndexAsync(indexName, ct);
+                    
+                    // Index still exists, wait before next attempt
+                    _logger.LogInformation("Index still exists, waiting... (attempt {Attempt}/{MaxAttempts})", 
+                        attempt + 1, maxAttempts);
+                    await Task.Delay(delayMs, ct);
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // Index not found - deletion is complete
+                    _logger.LogInformation("Index deletion confirmed after {Attempt} attempts", attempt + 1);
+                    return;
+                }
+            }
+
+            // If we get here, index deletion took too long
+            _logger.LogWarning("Index deletion verification timed out after {Seconds} seconds, proceeding anyway", 
+                maxAttempts * delayMs / 1000);
+        }
+    }
+}
