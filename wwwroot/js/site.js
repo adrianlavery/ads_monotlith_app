@@ -4,16 +4,46 @@
 // Floating Chat Button functionality
 document.addEventListener('DOMContentLoaded', function() {
     const chatButton = document.getElementById('chatButton');
-    const chatModal = new bootstrap.Modal(document.getElementById('chatModal'));
+    const chatWindow = document.getElementById('chatWindow');
+    const closeChatBtn = document.getElementById('closeChatBtn');
     const chatInput = document.getElementById('chatInput');
     const sendButton = document.getElementById('sendMessage');
     const chatMessages = document.getElementById('chatMessages');
+    let isChatOpen = false;
 
-    // Open chat modal when button is clicked
+    // Toggle chat window when button is clicked
     chatButton.addEventListener('click', function() {
-        chatModal.show();
-        chatInput.focus();
+        if (isChatOpen) {
+            closeChatWindow();
+        } else {
+            openChatWindow();
+        }
     });
+
+    // Close chat when close button is clicked
+    closeChatBtn.addEventListener('click', function() {
+        closeChatWindow();
+    });
+
+    // Close chat when clicking outside the chat window
+    document.addEventListener('click', function(e) {
+        if (isChatOpen && 
+            !chatWindow.contains(e.target) && 
+            !chatButton.contains(e.target)) {
+            closeChatWindow();
+        }
+    });
+
+    function openChatWindow() {
+        chatWindow.style.display = 'flex';
+        isChatOpen = true;
+        chatInput.focus();
+    }
+
+    function closeChatWindow() {
+        chatWindow.style.display = 'none';
+        isChatOpen = false;
+    }
 
     // Send message on button click
     sendButton.addEventListener('click', sendChatMessage);
