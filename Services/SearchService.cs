@@ -94,7 +94,7 @@ namespace RetailMonolith.Services
                 foreach (var product in products)
                 {
                     // Generate text for embedding
-                    var textToEmbed = $"{product.Name} {product.Description} {product.Category}";
+                    var textToEmbed = $"{product.Name} {product.Description ?? ""} {product.Category ?? ""}";
                     
                     // Generate embedding
                     var embedding = await GenerateEmbeddingAsync(textToEmbed, ct);
