@@ -5,6 +5,10 @@
 }
 <h2>
     Products
+    @if (!string.IsNullOrWhiteSpace(Model.Category))
+    {
+        <span class="badge bg-primary">@Model.Category</span>
+    }
 </h2>
 
 <!-- Search Interface -->
@@ -24,8 +28,8 @@
             </button>
             @if (!string.IsNullOrWhiteSpace(Model.SearchQuery))
             {
-                <a href="/Products" class="btn btn-outline-secondary me-2">
-                    <i class="bi bi-x-circle"></i> Clear
+                <a href="/Products@(!string.IsNullOrWhiteSpace(Model.Category) ? "?category=" + Model.Category : "")" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-x-circle"></i> Clear Search
                 </a>
                 <button type="button" class="btn btn-outline-info" id="toggleTracingBtn" onclick="toggleTracing()">
                     @if (Model.ShowTracing)
@@ -38,7 +42,14 @@
                     }
                 </button>
             }
+            @if (!string.IsNullOrWhiteSpace(Model.Category))
+            {
+                <a href="/Products" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-funnel"></i> Clear Filter
+                </a>
+            }
         </div>
+        <input type="hidden" name="Category" value="@Model.Category" />
         <input type="hidden" name="ShowTracing" id="showTracingInput" value="@Model.ShowTracing.ToString().ToLower()" />
     </form>
     

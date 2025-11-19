@@ -28,6 +28,9 @@ namespace RetailMonolith.Pages.Products
         public string? SearchQuery { get; set; }
 
         [BindProperty(SupportsGet = true)]
+        public string? Category { get; set; }
+
+        [BindProperty(SupportsGet = true)]
         public bool ShowTracing { get; set; }
 
         public SearchResponse? SearchResponse { get; set; }
@@ -62,18 +65,37 @@ namespace RetailMonolith.Pages.Products
                     // Use semantic search with tracing
                     SearchResponse = await _searchService.SearchProductsWithTraceAsync(SearchQuery);
                     Products = SearchResponse.Results.Select(r => r.Product).ToList();
+                    
+                    // Apply category filter if specified
+                    if (!string.IsNullOrWhiteSpace(Category))
+                    {
+                        Products = Products.Where(p => p.Category == Category).ToList();
+                    }
                 }
                 else
                 {
                     // Use semantic search without tracing
                     var searchResults = await _searchService.SearchProductsAsync(SearchQuery);
                     Products = searchResults.ToList();
+                    
+                    // Apply category filter if specified
+                    if (!string.IsNullOrWhiteSpace(Category))
+                    {
+                        Products = Products.Where(p => p.Category == Category).ToList();
+                    }
                 }
             }
             else
             {
-                // Show all active products
-                Products = await _db.Products.Where(p => p.IsActive).ToListAsync();
+                // Show products filtered by category or all active products
+                var query = _db.Products.Where(p => p.IsActive);
+                
+                if (!string.IsNullOrWhiteSpace(Category))
+                {
+                    query = query.Where(p => p.Category == Category);
+                }
+                
+                Products = await query.ToListAsync();
             }
         }
 
