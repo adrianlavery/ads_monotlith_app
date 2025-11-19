@@ -1,39 +1,86 @@
 ﻿@page
 @model RetailMonolith.Pages.Orders.DetailsModel
 @{
+    ViewData["Title"] = "Order Confirmation";
 }
 
+<div class="container mt-4">
+    @if (Model.Order is null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-triangle"></i> Order not found.
+        </div>
+    }
+    else
+    {
+        <div class="text-center mb-4">
+            <i class="bi bi-check-circle text-success" style="font-size: 4rem;"></i>
+            <h2 class="mt-3">Order Confirmed!</h2>
+            <p class="text-muted">Thank you! Your order has been successfully placed.</p>
+        </div>
 
-@if (Model.Order is null)
-{
-    <div class="alert alert-danger">Order not found.</div>
-}
-else
-{
-    <h2>Order Confirmation</h2>
-    <p>Thank you! Your order has been successfully placed.</p>
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0">Order #@Model.Order.Id</h5>
+                                <small class="text-muted">Placed on @Model.Order.CreatedUtc.ToLocalTime().ToString("MMM dd, yyyy h:mm tt")</small>
+                            </div>
+                            <span class="badge bg-success">@Model.Order.Status</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Item</th>
+                                    <th style="width: 100px;" class="text-center">Quantity</th>
+                                    <th style="width: 120px;" class="text-end">Unit Price</th>
+                                    <th style="width: 120px;" class="text-end">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in Model.Order.Lines)
+                                {
+                                    <tr>
+                                        <td><strong>@line.Name</strong></td>
+                                        <td class="text-center">@line.Quantity</td>
+                                        <td class="text-end">@(line.UnitPrice.ToString("C"))</td>
+                                        <td class="text-end"><strong>@((line.UnitPrice * line.Quantity).ToString("C"))</strong></td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light">
+                                    <td colspan="3" class="text-end"><h5 class="mb-0">Order Total:</h5></td>
+                                    <td class="text-end"><h4 class="mb-0 text-success">@(Model.Order.Total.ToString("C"))</h4></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
 
-    <h4>Order ID: @Model.Order.Id</h4>
-    <p>Status: <strong>@Model.Order.Status</strong></p>
-    <p>Date: @Model.Order.CreatedUtc.ToLocalTime()</p>
+                <div class="d-grid gap-2">
+                    <a class="btn btn-primary btn-lg" href="/Products">
+                        <i class="bi bi-arrow-left"></i> Continue Shopping
+                    </a>
+                    <a class="btn btn-outline-secondary" href="/Orders">
+                        <i class="bi bi-list-ul"></i> View All Orders
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
 
-    <table class="table mt-3">
-        <thead>
-            <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-        </thead>
-        <tbody>
-            @foreach (var line in Model.Order.Lines)
-            {
-                <tr>
-                    <td>@line.Name</td>
-                    <td>@line.Quantity</td>
-                    <td>@line.UnitPrice.ToString("C")</td>
-                    <td>@(line.UnitPrice* line.Quantity).ToString("C")</td>
-                </tr>
-            }
-        </tbody>
-    </table>
-
-    <h4>Total: @Model.Order.Total.ToString("C")</h4>
-    <a class="btn btn-primary mt-3" href="/Products">Continue Shopping</a>
-}
+<style>
+    .text-end {
+        text-align: right !important;
+    }
+    
+    .text-center {
+        text-align: center !important;
+    }
+</style>
