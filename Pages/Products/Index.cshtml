@@ -9,7 +9,7 @@
 
 <!-- Search Interface -->
 <div class="container mb-4">
-    <form method="get" class="row g-3">
+    <form method="get" class="row g-3" id="searchForm">
         <div class="col-md-8">
             <input type="text" 
                    class="form-control" 
@@ -24,43 +24,163 @@
             </button>
             @if (!string.IsNullOrWhiteSpace(Model.SearchQuery))
             {
-                <a href="/Products" class="btn btn-outline-secondary">
+                <a href="/Products" class="btn btn-outline-secondary me-2">
                     <i class="bi bi-x-circle"></i> Clear
                 </a>
+                <button type="button" class="btn btn-outline-info" id="toggleTracingBtn" onclick="toggleTracing()">
+                    @if (Model.ShowTracing)
+                    {
+                        <i class="bi bi-eye-slash"></i> <text>Hide Tracing</text>
+                    }
+                    else
+                    {
+                        <i class="bi bi-eye"></i> <text>Show Tracing</text>
+                    }
+                </button>
             }
         </div>
+        <input type="hidden" name="ShowTracing" id="showTracingInput" value="@Model.ShowTracing.ToString().ToLower()" />
     </form>
     
     @if (!string.IsNullOrWhiteSpace(Model.SearchQuery))
     {
         <div class="alert alert-info mt-3" role="alert">
             Showing results for: <strong>@Model.SearchQuery</strong>
+            @if (Model.ShowTracing && Model.SearchResponse != null)
+            {
+                <span class="ms-3">
+                    <span class="badge bg-secondary">Total: @Model.SearchResponse.TotalResults</span>
+                    <span class="badge bg-info">Tracing Enabled</span>
+                </span>
+            }
         </div>
     }
 </div>
 
 <div class="container">
-    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-        @foreach (var product in Model.Products)
+    <div class="row">
+        <!-- Products Grid -->
+        <div class="@(Model.ShowTracing && Model.SearchResponse != null ? "col-lg-8" : "col-12")">
+            <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 @(Model.ShowTracing && Model.SearchResponse != null ? "row-cols-lg-2" : "row-cols-lg-4") g-4">
+                @foreach (var product in Model.Products)
+                {
+                    <div class="col">
+                        <div class="card h-100 shadow-sm border-0">
+                            <img src="@Model.GetImageForCategory(product.Category)"
+                                 class="card-img-top" alt="@product.Name" style="object-fit: cover; height: 250px;">
+
+                            <div class="card-body d-flex flex-column">
+                                <h5 class="card-title">@product.Name</h5>
+                                <p class="card-text text-muted mb-2">@product.Category</p>
+                                <h6 class="fw-semibold mb-3">@product.Price.ToString("C")</h6>
+
+                                <form method="post" asp-page-handler="AddToCart">
+                                    <input type="hidden" name="productId" value="@product.Id" />
+                                    <button type="submit" class="btn btn-primary">Add to Cart</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Tracing Sidebar -->
+        @if (Model.ShowTracing && Model.SearchResponse != null)
         {
-            <div class="col">
-                <div class="card h-100 shadow-sm border-0">
-                    <img src="@Model.GetImageForCategory(product.Category)"
-                         class="card-img-top" alt="@product.Name" style="object-fit: cover; height: 250px;">
+            <div class="col-lg-4">
+                <div class="card shadow-sm sticky-top" style="top: 20px; max-height: 90vh; overflow-y: auto;">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-bug"></i> Search Trace Information
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Query Information -->
+                        <div class="mb-4">
+                            <h6 class="fw-bold">Original Query</h6>
+                            <p class="text-muted mb-2">@Model.SearchResponse.OriginalQuery</p>
+                            
+                            <h6 class="fw-bold mt-3">Processed Tokens</h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach (var token in Model.SearchResponse.ProcessedTokens)
+                                {
+                                    <span class="badge bg-secondary">@token</span>
+                                }
+                            </div>
+                        </div>
 
-                    <div class="card-body d-flex flex-column">
-                        <h5 class="card-title">@product.Name</h5>
-                        <p class="card-text text-muted mb-2">@product.Category</p>
-                        <h6 class="fw-semibold mb-3">@product.Price.ToString("C")</h6>
+                        <hr />
 
-                        <form method="post" asp-page-handler="AddToCart">
-                            <input type="hidden" name="productId" value="@product.Id" />
-                            <button type="submit" class="btn btn-primary">Add to Cart</button>
-                        </form>
+                        <!-- Results with Trace Data -->
+                        <h6 class="fw-bold mb-3">Results Breakdown</h6>
+                        @for (int i = 0; i < Model.SearchResponse.Results.Count; i++)
+                        {
+                            var result = Model.SearchResponse.Results[i];
+                            <div class="mb-4 p-3 border rounded @(i == 0 ? "border-success" : "")">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="mb-0">
+                                        <span class="badge bg-primary">#@(i + 1)</span>
+                                        @result.Product.Name
+                                    </h6>
+                                    <span class="badge bg-success">Score: @result.TraceData.Score.ToString("F4")</span>
+                                </div>
+
+                                <!-- Score Details -->
+                                <div class="small mb-2">
+                                    <strong>Document ID:</strong> @result.TraceData.DocumentId<br />
+                                    @if (result.TraceData.RerankerScore.HasValue)
+                                    {
+                                        <strong>Reranker Score:</strong> @result.TraceData.RerankerScore.Value.ToString("F4")<br />
+                                    }
+                                </div>
+
+                                <!-- Matched Fields -->
+                                @if (result.TraceData.MatchedFields.Any())
+                                {
+                                    <div class="mt-2">
+                                        <strong class="small">Matched Fields:</strong>
+                                        <ul class="list-unstyled ms-2 mt-1 small">
+                                            @foreach (var field in result.TraceData.MatchedFields)
+                                            {
+                                                <li class="mb-2">
+                                                    <span class="badge bg-light text-dark">@field.FieldName</span>
+                                                    @if (!string.IsNullOrWhiteSpace(field.MatchedContent))
+                                                    {
+                                                        <div class="text-muted fst-italic mt-1" style="font-size: 0.85em;">
+                                                            "@field.MatchedContent"
+                                                        </div>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+
+                                <!-- Product Details -->
+                                <div class="small text-muted mt-2">
+                                    <strong>Category:</strong> @result.Product.Category<br />
+                                    <strong>Price:</strong> @result.Product.Price.ToString("C")<br />
+                                    <strong>SKU:</strong> @result.Product.Sku
+                                </div>
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
         }
     </div>
 </div>
-<a class="btn btn-outline-secondary" href="/Cart">View Cart</a>
+<a class="btn btn-outline-secondary mt-3" href="/Cart">View Cart</a>
+
+@section Scripts {
+    <script>
+        function toggleTracing() {
+            const showTracingInput = document.getElementById('showTracingInput');
+            const currentValue = showTracingInput.value === 'true';
+            showTracingInput.value = (!currentValue).toString();
+            document.getElementById('searchForm').submit();
+        }
+    </script>
+}
+

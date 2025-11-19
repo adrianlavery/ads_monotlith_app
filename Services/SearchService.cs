@@ -250,6 +250,128 @@ namespace RetailMonolith.Services
             }
         }
 
+        public async Task<SearchResponse> SearchProductsWithTraceAsync(string query, int maxResults = 10, CancellationToken ct = default)
+        {
+            EnsureClientsInitialized();
+            
+            try
+            {
+                _logger.LogInformation("Searching for products with tracing enabled, query: {Query}", query);
+
+                var searchResponse = new SearchResponse
+                {
+                    OriginalQuery = query,
+                    ProcessedTokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList()
+                };
+
+                // Generate embedding for the search query
+                var queryEmbedding = await GenerateEmbeddingAsync(query, ct);
+
+                // Configure the search options with hybrid search (vector + keyword)
+                var searchOptions = new SearchOptions
+                {
+                    Size = maxResults,
+                    Select = { "Id", "Sku", "Name", "Description", "Category", "Price", "IsActive" },
+                    Filter = "IsActive eq true",
+                    IncludeTotalCount = true
+                };
+
+                // Add vector search - convert IReadOnlyList to ReadOnlyMemory
+                var vectorQuery = new VectorizedQuery(new ReadOnlyMemory<float>((float[])queryEmbedding))
+                {
+                    KNearestNeighborsCount = maxResults,
+                    Fields = { "Embedding" }
+                };
+                searchOptions.VectorSearch = new VectorSearchOptions();
+                searchOptions.VectorSearch.Queries.Add(vectorQuery);
+
+                // Execute the search
+                var response = await _searchClient!.SearchAsync<ProductSearchDocument>(query, searchOptions, ct);
+
+                searchResponse.TotalResults = (int)(response.Value.TotalCount ?? 0);
+
+                // Build results with trace data
+                var productIdsWithScores = new List<(int productId, SearchTraceData traceData)>();
+                
+                await foreach (var result in response.Value.GetResultsAsync())
+                {
+                    if (int.TryParse(result.Document.Id, out int productId))
+                    {
+                        var traceData = new SearchTraceData
+                        {
+                            DocumentId = result.Document.Id,
+                            Score = result.Score ?? 0.0,
+                            MatchedFields = new List<MatchedField>()
+                        };
+
+                        // Add matched fields based on document content
+                        if (!string.IsNullOrWhiteSpace(result.Document.Name))
+                        {
+                            traceData.MatchedFields.Add(new MatchedField
+                            {
+                                FieldName = "Name",
+                                MatchedContent = result.Document.Name
+                            });
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(result.Document.Description))
+                        {
+                            traceData.MatchedFields.Add(new MatchedField
+                            {
+                                FieldName = "Description",
+                                MatchedContent = result.Document.Description.Length > 100 
+                                    ? result.Document.Description.Substring(0, 100) + "..." 
+                                    : result.Document.Description
+                            });
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(result.Document.Category))
+                        {
+                            traceData.MatchedFields.Add(new MatchedField
+                            {
+                                FieldName = "Category",
+                                MatchedContent = result.Document.Category
+                            });
+                        }
+
+                        productIdsWithScores.Add((productId, traceData));
+                    }
+                }
+
+                // Retrieve full product details from database
+                if (productIdsWithScores.Any())
+                {
+                    var productIds = productIdsWithScores.Select(x => x.productId).ToList();
+                    var products = await _db.Products
+                        .Where(p => productIds.Contains(p.Id))
+                        .ToListAsync(ct);
+
+                    // Build results maintaining search order
+                    foreach (var (productId, traceData) in productIdsWithScores)
+                    {
+                        var product = products.FirstOrDefault(p => p.Id == productId);
+                        if (product != null)
+                        {
+                            searchResponse.Results.Add(new SearchResultWithTrace
+                            {
+                                Product = product,
+                                TraceData = traceData
+                            });
+                        }
+                    }
+
+                    _logger.LogInformation("Found {Count} products matching query with trace data", searchResponse.Results.Count);
+                }
+
+                return searchResponse;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching products with trace");
+                throw;
+            }
+        }
+
         private async Task<IReadOnlyList<float>> GenerateEmbeddingAsync(string text, CancellationToken ct = default)
         {
             EnsureClientsInitialized();
