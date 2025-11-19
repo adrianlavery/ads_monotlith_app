@@ -27,6 +27,11 @@ namespace RetailMonolith.Pages.Products
         [BindProperty(SupportsGet = true)]
         public string? SearchQuery { get; set; }
 
+        [BindProperty(SupportsGet = true)]
+        public bool ShowTracing { get; set; }
+
+        public SearchResponse? SearchResponse { get; set; }
+
         // Category ? Image mapping
         public static readonly Dictionary<string, string> CategoryImages = new()
         {
@@ -52,9 +57,18 @@ namespace RetailMonolith.Pages.Products
         {
             if (!string.IsNullOrWhiteSpace(SearchQuery))
             {
-                // Use semantic search
-                var searchResults = await _searchService.SearchProductsAsync(SearchQuery);
-                Products = searchResults.ToList();
+                if (ShowTracing)
+                {
+                    // Use semantic search with tracing
+                    SearchResponse = await _searchService.SearchProductsWithTraceAsync(SearchQuery);
+                    Products = SearchResponse.Results.Select(r => r.Product).ToList();
+                }
+                else
+                {
+                    // Use semantic search without tracing
+                    var searchResults = await _searchService.SearchProductsAsync(SearchQuery);
+                    Products = searchResults.ToList();
+                }
             }
             else
             {
