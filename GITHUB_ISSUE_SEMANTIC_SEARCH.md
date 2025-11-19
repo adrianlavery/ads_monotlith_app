@@ -21,7 +21,7 @@ Add the following packages to `RetailMonolith.csproj`:
 #### GitHub Secrets Setup
 Store Azure credentials as GitHub repository secrets:
 
-1. Go to your repository: `https://github.com/adrianlavery/ads_monotlith_app`
+1. Go to your repository: `https://github.com/adrianlavery/ads_monolith_app`
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret** and add the following:
 
