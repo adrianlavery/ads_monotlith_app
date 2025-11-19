@@ -36,6 +36,7 @@ builder.Services.AddScoped<ICheckoutService, CheckoutService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IDummyDataService, DummyDataService>();
 builder.Services.AddHealthChecks();
 
 // Configure Azure Search settings
@@ -139,5 +140,56 @@ app.MapPost("/admin/search/initialize", async (ISearchService searchService) =>
     await searchService.IndexProductsAsync();
     return Results.Ok(new { message = "Search index initialized successfully" });
 }).WithName("InitializeSearch");
+
+// Dummy data generation endpoints (DEV/QA only)
+var enableDummyData = builder.Configuration.GetValue<bool>("Features:EnableDummyDataGeneration", false);
+if (enableDummyData)
+{
+    app.MapPost("/api/admin/generate-dummy-data", async (IDummyDataService dummyDataService, int count = 50) =>
+    {
+        try
+        {
+            if (count < 1 || count > 1000)
+            {
+                return Results.BadRequest(new { error = "Count must be between 1 and 1000" });
+            }
+
+            var result = await dummyDataService.GenerateDummyOrdersAsync(count);
+            return Results.Ok(new
+            {
+                message = $"Successfully generated {result.OrdersCreated} dummy orders",
+                ordersCreated = result.OrdersCreated,
+                orderLinesCreated = result.OrderLinesCreated,
+                totalRevenue = result.TotalRevenue,
+                dateRange = new
+                {
+                    from = result.EarliestOrderDate,
+                    to = result.LatestOrderDate
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(new { error = ex.Message }, statusCode: 500);
+        }
+    }).WithName("GenerateDummyData");
+
+    app.MapDelete("/api/admin/cleanup-dummy-data", async (IDummyDataService dummyDataService) =>
+    {
+        try
+        {
+            var deletedCount = await dummyDataService.CleanupDummyDataAsync();
+            return Results.Ok(new
+            {
+                message = $"Successfully deleted {deletedCount} dummy orders",
+                deletedCount
+            });
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(new { error = ex.Message }, statusCode: 500);
+        }
+    }).WithName("CleanupDummyData");
+}
 
 app.Run();
