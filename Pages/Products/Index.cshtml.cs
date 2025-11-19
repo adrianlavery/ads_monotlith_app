@@ -13,13 +13,24 @@ namespace RetailMonolith.Pages.Products
     {
         private readonly AppDbContext _db;
         private readonly ICartService _cartService;
-        public IndexModel(AppDbContext db, ICartService cartService)
+        private readonly ISearchService _searchService;
+
+        public IndexModel(AppDbContext db, ICartService cartService, ISearchService searchService)
         {
             _db = db;
             _cartService = cartService;
+            _searchService = searchService;
         }
 
         public IList<Product> Products { get; set; } = new List<Product>();
+
+        [BindProperty(SupportsGet = true)]
+        public string? SearchQuery { get; set; }
+
+        [BindProperty(SupportsGet = true)]
+        public bool ShowTracing { get; set; }
+
+        public SearchResponse? SearchResponse { get; set; }
 
         // Category ? Image mapping
         public static readonly Dictionary<string, string> CategoryImages = new()
@@ -42,7 +53,29 @@ namespace RetailMonolith.Pages.Products
             return "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=800&q=80";
         }
 
-        public async Task OnGetAsync() => Products = await _db.Products.Where(p => p.IsActive).ToListAsync();
+        public async Task OnGetAsync() 
+        {
+            if (!string.IsNullOrWhiteSpace(SearchQuery))
+            {
+                if (ShowTracing)
+                {
+                    // Use semantic search with tracing
+                    SearchResponse = await _searchService.SearchProductsWithTraceAsync(SearchQuery);
+                    Products = SearchResponse.Results.Select(r => r.Product).ToList();
+                }
+                else
+                {
+                    // Use semantic search without tracing
+                    var searchResults = await _searchService.SearchProductsAsync(SearchQuery);
+                    Products = searchResults.ToList();
+                }
+            }
+            else
+            {
+                // Show all active products
+                Products = await _db.Products.Where(p => p.IsActive).ToListAsync();
+            }
+        }
 
         public async Task OnPostAsync(int productId)
         {
