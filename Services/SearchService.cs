@@ -88,8 +88,10 @@ namespace RetailMonolith.Services
                 try
                 {
                     await _indexClient!.DeleteIndexAsync(_searchConfig.IndexName, cancellationToken: ct);
-                    _logger.LogInformation("Deleted existing index");
-                    await WaitForIndexDeletionAsync(_searchConfig.IndexName, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(500), ct);
+                    _logger.LogInformation("Deleted existing index, waiting for deletion to complete");
+                    
+                    // Poll until index is truly deleted
+                    await WaitForIndexDeletionAsync(_searchConfig.IndexName, ct);
                 }
                 catch (Azure.RequestFailedException ex) when (ex.Status == 404)
                 {
@@ -262,6 +264,36 @@ namespace RetailMonolith.Services
                 _logger.LogError(ex, "Error generating embedding for text: {Text}", text);
                 throw;
             }
+        }
+
+        private async Task WaitForIndexDeletionAsync(string indexName, CancellationToken ct = default)
+        {
+            const int maxAttempts = 30; // 30 attempts
+            const int delayMs = 500; // 500ms between attempts (15 seconds total)
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    // Try to get the index - if it exists, deletion isn't complete
+                    await _indexClient!.GetIndexAsync(indexName, ct);
+                    
+                    // Index still exists, wait before next attempt
+                    _logger.LogInformation("Index still exists, waiting... (attempt {Attempt}/{MaxAttempts})", 
+                        attempt + 1, maxAttempts);
+                    await Task.Delay(delayMs, ct);
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // Index not found - deletion is complete
+                    _logger.LogInformation("Index deletion confirmed after {Attempt} attempts", attempt + 1);
+                    return;
+                }
+            }
+
+            // If we get here, index deletion took too long
+            _logger.LogWarning("Index deletion verification timed out after {Seconds} seconds, proceeding anyway", 
+                maxAttempts * delayMs / 1000);
         }
     }
 }
