@@ -201,12 +201,14 @@ $env:AZURE_OPENAI_API_KEY="your-openai-api-key"
 GitHub Codespaces automatically provides access to repository secrets as environment variables. To configure:
 
 1. Navigate to your repository on GitHub
-2. Go to **Settings** → **Secrets and variables** → **Codespaces**
+2. Go to **Settings** → **Secrets and variables** → **Codespaces** (not Actions!)
 3. Add the following secrets:
    - `AZURE_SEARCH_ENDPOINT`
    - `AZURE_SEARCH_API_KEY`
    - `AZURE_OPENAI_ENDPOINT`
    - `AZURE_OPENAI_API_KEY`
+
+**Important:** Make sure to add secrets under the **Codespaces** tab, not the **Actions** tab. Codespaces secrets are separate from Actions secrets.
 
 These secrets will be automatically available as environment variables when you create or restart a Codespace.
 
