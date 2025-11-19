@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using RetailMonolith.Data;
+using RetailMonolith.Models;
 using RetailMonolith.Services;
+using Microsoft.Extensions.Options;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +21,19 @@ builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddHealthChecks();
+
+// Configure Azure Search settings
+builder.Services.Configure<AzureOpenAIConfiguration>(
+    builder.Configuration.GetSection("AzureOpenAI"));
+builder.Services.Configure<AzureSearchConfiguration>(
+    builder.Configuration.GetSection("AzureSearch"));
+
+builder.Services.AddSingleton(sp => 
+    sp.GetRequiredService<IOptions<AzureOpenAIConfiguration>>().Value);
+builder.Services.AddSingleton(sp => 
+    sp.GetRequiredService<IOptions<AzureSearchConfiguration>>().Value);
+
+builder.Services.AddScoped<ISearchService, SearchService>();
 
 var app = builder.Build();
 
@@ -98,5 +113,12 @@ app.MapPost("/api/chat", async (IChatService chatService, ChatRequest request) =
         }, statusCode: 500);
     }
 });
+
+app.MapPost("/admin/search/initialize", async (ISearchService searchService) =>
+{
+    await searchService.InitializeIndexAsync();
+    await searchService.IndexProductsAsync();
+    return Results.Ok(new { message = "Search index initialized successfully" });
+}).WithName("InitializeSearch");
 
 app.Run();
