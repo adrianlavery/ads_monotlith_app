@@ -71,30 +71,44 @@ namespace RetailMonolith.Services
             }
 
             sb.AppendLine();
-            sb.AppendLine("## Product Catalog (Sample):");
+            sb.AppendLine("## Complete Product Catalog:");
+            sb.AppendLine("Below is the COMPLETE list of ALL products available in the store. Use this information to answer ANY product-related questions.");
+            sb.AppendLine();
             
+            // Load ALL products from the database
             var products = await _db.Products
                 .Where(p => p.IsActive)
                 .OrderBy(p => p.Category)
-                .ThenBy(p => p.Price)
-                .Take(30)
+                .ThenBy(p => p.Name)
                 .ToListAsync(ct);
 
-            foreach (var product in products)
+            var groupedProducts = products.GroupBy(p => p.Category);
+            
+            foreach (var categoryGroup in groupedProducts)
             {
-                sb.AppendLine($"- {product.Name} ({product.Sku}): £{product.Price:F2} - {product.Description}");
+                sb.AppendLine($"\n### {categoryGroup.Key} ({categoryGroup.Count()} items):");
+                foreach (var product in categoryGroup)
+                {
+                    var priceFormatted = product.Currency == "USD" ? $"${product.Price:F2}" : $"£{product.Price:F2}";
+                    sb.AppendLine($"- **{product.Name}** (SKU: {product.Sku}): {priceFormatted}");
+                    if (!string.IsNullOrWhiteSpace(product.Description))
+                    {
+                        sb.AppendLine($"  Description: {product.Description}");
+                    }
+                }
             }
 
             sb.AppendLine();
             sb.AppendLine("## Instructions:");
-            sb.AppendLine("1. When customers ask about products, recommend items from the catalog above.");
-            sb.AppendLine("2. Mention the product SKU when recommending products so they can add them to cart.");
-            sb.AppendLine("3. If asked about price ranges, suggest products within the customer's budget.");
-            sb.AppendLine("4. For cart-related questions, explain that they can view their cart at /Cart/Index.");
-            sb.AppendLine("5. For checkout questions, direct them to /Checkout/Index.");
-            sb.AppendLine("6. For order history, direct them to /Orders/Index.");
-            sb.AppendLine("7. Be friendly, concise, and helpful. Use British English and GBP (£) for prices.");
-            sb.AppendLine("8. If you don't have specific information, be honest and guide them to the appropriate page.");
+            sb.AppendLine("1. You have the COMPLETE product catalog above. Answer ALL questions about products, prices, and availability accurately.");
+            sb.AppendLine("2. When asked about specific products (e.g., 'Electronics Item 1'), search the catalog above and provide the EXACT price and details.");
+            sb.AppendLine("3. When customers ask 'how much is [product]?', respond with the exact price from the catalog above.");
+            sb.AppendLine("4. Always format prices with the currency symbol (£ or $) as shown in the catalog.");
+            sb.AppendLine("5. When recommending products, mention the product name, SKU, and price.");
+            sb.AppendLine("6. If asked about price ranges, list all products within that budget from the catalog above.");
+            sb.AppendLine("7. For cart questions, direct users to /Cart/Index. For checkout, direct to /Checkout/Index. For orders, direct to /Orders/Index.");
+            sb.AppendLine("8. Be friendly, accurate, and helpful. You have ALL product information - use it to answer questions precisely.");
+            sb.AppendLine("9. If a customer asks about a product by name or partial name, search the catalog and provide the exact match with price.");
 
             return sb.ToString();
         }
