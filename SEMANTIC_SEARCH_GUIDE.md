@@ -196,7 +196,7 @@ namespace RetailMonolith.Models
         public bool IsActive { get; set; }
 
         // Vector field for semantic search
-        [VectorSearchField(VectorSearchDimensions = 1536, VectorSearchProfileName = "my-vector-profile")]
+        [VectorSearchField(VectorSearchDimensions = 1536, VectorSearchProfileName = "vector-profile")]
         public IReadOnlyList<float>? Embedding { get; set; }
     }
 }
