@@ -190,7 +190,7 @@ namespace RetailMonolith.Models
         public string? Category { get; set; }
 
         [SimpleField(IsFilterable = true, IsSortable = true)]
-        public decimal Price { get; set; }
+        public double Price { get; set; }
 
         [SimpleField(IsFilterable = true)]
         public bool IsActive { get; set; }
