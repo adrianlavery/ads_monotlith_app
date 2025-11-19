@@ -4,30 +4,118 @@
 // Floating Chat Button functionality
 document.addEventListener('DOMContentLoaded', function() {
     const chatButton = document.getElementById('chatButton');
-    const chatModal = new bootstrap.Modal(document.getElementById('chatModal'));
+    const chatWindow = document.getElementById('chatWindow');
+    const closeChatBtn = document.getElementById('closeChatBtn');
     const chatInput = document.getElementById('chatInput');
     const sendButton = document.getElementById('sendMessage');
     const chatMessages = document.getElementById('chatMessages');
+    let isChatOpen = false;
+    let conversationHistory = [];
+    let isWaitingForResponse = false;
 
-    // Open chat modal when button is clicked
+    // Toggle chat window when button is clicked
     chatButton.addEventListener('click', function() {
-        chatModal.show();
-        chatInput.focus();
+        if (isChatOpen) {
+            closeChatWindow();
+        } else {
+            openChatWindow();
+        }
     });
+
+    // Close chat when close button is clicked
+    closeChatBtn.addEventListener('click', function() {
+        closeChatWindow();
+    });
+
+    // Close chat when clicking outside the chat window
+    document.addEventListener('click', function(e) {
+        if (isChatOpen && 
+            !chatWindow.contains(e.target) && 
+            !chatButton.contains(e.target)) {
+            closeChatWindow();
+        }
+    });
+
+    function openChatWindow() {
+        chatWindow.style.display = 'flex';
+        isChatOpen = true;
+        
+        // Show suggestions if this is the first time opening (no history)
+        if (conversationHistory.length === 0) {
+            showInitialSuggestions();
+        }
+        
+        chatInput.focus();
+    }
+
+    function closeChatWindow() {
+        chatWindow.style.display = 'none';
+        isChatOpen = false;
+    }
+
+    function showInitialSuggestions() {
+        // Clear the welcome message if it exists
+        const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
+        if (welcomeMessage) {
+            welcomeMessage.remove();
+        }
+
+        const suggestionsDiv = document.createElement('div');
+        suggestionsDiv.className = 'chat-suggestions';
+        suggestionsDiv.innerHTML = `
+            <div class="welcome-message">
+                <i class="bi bi-robot" style="font-size: 2rem; color: #667eea;"></i>
+                <h6 class="mt-2 mb-3">👋 Hello! I'm your AI shopping assistant</h6>
+                <p class="text-muted small mb-3">I can help you with:</p>
+            </div>
+            <div class="suggestion-buttons">
+                <button class="suggestion-btn" data-suggestion="What products do you have available?">
+                    <i class="bi bi-box-seam"></i> Browse Products
+                </button>
+                <button class="suggestion-btn" data-suggestion="Show me laptops under £1000">
+                    <i class="bi bi-laptop"></i> Find Laptops
+                </button>
+                <button class="suggestion-btn" data-suggestion="What are your best selling products?">
+                    <i class="bi bi-star"></i> Best Sellers
+                </button>
+                <button class="suggestion-btn" data-suggestion="Tell me about your electronics">
+                    <i class="bi bi-phone"></i> Electronics
+                </button>
+            </div>
+        `;
+        chatMessages.appendChild(suggestionsDiv);
+
+        // Add click handlers to suggestion buttons
+        const suggestionBtns = suggestionsDiv.querySelectorAll('.suggestion-btn');
+        suggestionBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const suggestion = this.getAttribute('data-suggestion');
+                chatInput.value = suggestion;
+                sendChatMessage();
+            });
+        });
+    }
 
     // Send message on button click
     sendButton.addEventListener('click', sendChatMessage);
 
     // Send message on Enter key
     chatInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
             sendChatMessage();
         }
     });
 
-    function sendChatMessage() {
+    async function sendChatMessage() {
         const message = chatInput.value.trim();
-        if (message === '') return;
+        if (message === '' || isWaitingForResponse) return;
+
+        // Remove suggestions if they exist
+        const suggestions = chatMessages.querySelector('.chat-suggestions');
+        if (suggestions) {
+            suggestions.remove();
+        }
 
         // Clear the initial welcome message if it exists
         const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
@@ -35,44 +123,99 @@ document.addEventListener('DOMContentLoaded', function() {
             welcomeMessage.remove();
         }
 
-        // Add user message
+        // Add user message to UI
         addMessage(message, 'user');
         chatInput.value = '';
+        
+        // Add to conversation history
+        conversationHistory.push({
+            role: 'user',
+            content: message
+        });
 
-        // Simulate AI response (you can replace this with actual API call)
-        setTimeout(() => {
-            const response = getAIResponse(message);
-            addMessage(response, 'assistant');
-        }, 1000);
+        // Show typing indicator
+        isWaitingForResponse = true;
+        sendButton.disabled = true;
+        const typingIndicator = showTypingIndicator();
+
+        try {
+            // Call the API
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    history: conversationHistory.slice(0, -1) // Send history without the current message
+                })
+            });
+
+            const data = await response.json();
+            
+            // Remove typing indicator
+            typingIndicator.remove();
+
+            if (data.success && data.message) {
+                // Add assistant response to UI
+                addMessage(data.message, 'assistant');
+                
+                // Add to conversation history
+                conversationHistory.push({
+                    role: 'assistant',
+                    content: data.message
+                });
+            } else {
+                // Show error message
+                addMessage(data.error || 'Sorry, I encountered an error. Please try again.', 'assistant', true);
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            typingIndicator.remove();
+            addMessage('Sorry, I\'m having trouble connecting. Please check your Azure OpenAI configuration and try again.', 'assistant', true);
+        } finally {
+            isWaitingForResponse = false;
+            sendButton.disabled = false;
+            chatInput.focus();
+        }
     }
 
-    function addMessage(text, sender) {
+    function showTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'chat-message assistant typing-indicator';
+        typingDiv.innerHTML = `
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        chatMessages.appendChild(typingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return typingDiv;
+    }
+
+    function addMessage(text, sender, isError = false) {
         const messageDiv = document.createElement('div');
-        messageDiv.className = `chat-message ${sender}`;
+        messageDiv.className = `chat-message ${sender}${isError ? ' error' : ''}`;
+        
+        // Convert markdown-style formatting to HTML
+        const formattedText = formatMessageText(text);
+        
         messageDiv.innerHTML = `
-            <div>${text}</div>
+            <div>${formattedText}</div>
             <div class="chat-message-time">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
         `;
         chatMessages.appendChild(messageDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    function getAIResponse(message) {
-        // Simple response logic - replace with actual AI integration
-        const lowerMessage = message.toLowerCase();
-        
-        if (lowerMessage.includes('product') || lowerMessage.includes('item')) {
-            return "I can help you find products! Visit the Products page to browse our inventory, or tell me what you're looking for.";
-        } else if (lowerMessage.includes('order')) {
-            return "You can view your order history on the Orders page. Would you like me to help you with a specific order?";
-        } else if (lowerMessage.includes('cart')) {
-            return "Your shopping cart is accessible from the Cart page. You can add, remove, or update items there.";
-        } else if (lowerMessage.includes('insight') || lowerMessage.includes('analytics')) {
-            return "Check out our AI-powered Insights page for detailed sales analytics and recommendations!";
-        } else if (lowerMessage.includes('help')) {
-            return "I'm here to help! You can ask me about products, orders, your cart, or sales insights. What would you like to know?";
-        } else {
-            return "Thanks for your message! I'm currently a demo assistant. For full AI capabilities, integrate with Azure OpenAI. How else can I help you today?";
-        }
+    function formatMessageText(text) {
+        // Simple formatting: convert newlines to <br> and basic markdown
+        return text
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/£(\d+\.?\d*)/g, '<strong>£$1</strong>');
     }
 });
