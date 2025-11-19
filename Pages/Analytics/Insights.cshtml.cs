@@ -35,6 +35,29 @@ namespace RetailMonolith.Pages.Analytics
             return Page();
         }
 
+        public async Task<IActionResult> OnGetChartDataAsync(int days = 30)
+        {
+            try
+            {
+                var salesData = await _analyticsService.GetSalesDataAsync(days);
+                
+                // Format data for Chart.js
+                var chartData = new
+                {
+                    labels = salesData.DailySales.Select(d => d.Date.ToString("MMM dd")).ToList(),
+                    revenue = salesData.DailySales.Select(d => d.Revenue).ToList(),
+                    orders = salesData.DailySales.Select(d => d.OrderCount).ToList()
+                };
+                
+                return new JsonResult(chartData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading chart data");
+                return new JsonResult(new { error = ex.Message }) { StatusCode = 500 };
+            }
+        }
+
         private async Task LoadInsightsAsync()
         {
             try
