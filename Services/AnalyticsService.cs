@@ -43,6 +43,10 @@ namespace RetailMonolith.Services
                 .Where(o => o.CreatedUtc >= startDate)
                 .ToListAsync();
 
+            // Get all products to enrich analysis with category data
+            var products = await _db.Products.ToListAsync();
+            var productDict = products.ToDictionary(p => p.Sku, p => p);
+
             var analysisData = new SalesAnalysisData
             {
                 TotalOrders = orders.Count,
@@ -69,7 +73,20 @@ namespace RetailMonolith.Services
                     })
                     .OrderByDescending(p => p.Revenue)
                     .Take(10)
-                    .ToList()
+                    .ToList(),
+                CategoryPerformance = orders.SelectMany(o => o.Lines)
+                    .Where(l => productDict.ContainsKey(l.Sku))
+                    .GroupBy(l => productDict[l.Sku].Category ?? "Uncategorized")
+                    .Select(g => new CategoryPerformance
+                    {
+                        Category = g.Key,
+                        ProductCount = g.Select(l => l.Sku).Distinct().Count(),
+                        UnitsSold = g.Sum(l => l.Quantity),
+                        Revenue = g.Sum(l => l.UnitPrice * l.Quantity),
+                        AveragePrice = g.Any() ? g.Average(l => l.UnitPrice) : 0
+                    })
+                    .OrderByDescending(c => c.Revenue)
+                    .ToDictionary(c => c.Category, c => c)
             };
 
             return analysisData;
@@ -90,7 +107,7 @@ namespace RetailMonolith.Services
                 
                 var messages = new List<OpenAI.Chat.ChatMessage>
                 {
-                    new SystemChatMessage("You are a retail analytics expert. Analyze sales data and provide actionable insights in a clear, concise manner. Focus on trends, patterns, and specific recommendations."),
+                    new SystemChatMessage("You are a retail sales analytics expert helping sales teams maximize revenue. Analyze sales data and provide actionable insights in a clear, concise manner. Focus on specific, measurable recommendations that sales representatives can act on immediately. Use direct, action-oriented language targeted at sellers."),
                     new UserChatMessage(prompt)
                 };
 
@@ -137,6 +154,16 @@ namespace RetailMonolith.Services
                 sb.AppendLine();
             }
 
+            if (data.CategoryPerformance.Any())
+            {
+                sb.AppendLine($"**Category Performance:**");
+                foreach (var category in data.CategoryPerformance.Values.OrderByDescending(c => c.Revenue).Take(5))
+                {
+                    sb.AppendLine($"- {category.Category}: {category.UnitsSold} units sold, ${category.Revenue:N2} revenue, avg price ${category.AveragePrice:N2}");
+                }
+                sb.AppendLine();
+            }
+
             if (data.TopProducts.Any())
             {
                 sb.AppendLine($"**Top 5 Products:**");
@@ -158,9 +185,24 @@ namespace RetailMonolith.Services
             }
 
             sb.AppendLine("Please provide:");
-            sb.AppendLine("1. SUMMARY: A brief overview (2-3 sentences)");
-            sb.AppendLine("2. TRENDS: Key trends and patterns you observe");
-            sb.AppendLine("3. RECOMMENDATIONS: 3-5 specific, actionable recommendations");
+            sb.AppendLine("1. SUMMARY: A brief overview (2-3 sentences) of the sales performance");
+            sb.AppendLine("2. TRENDS: Key trends and patterns you observe in the data");
+            sb.AppendLine("3. RECOMMENDATIONS: Provide exactly 3-5 specific, actionable recommendations for the sales team.");
+            sb.AppendLine();
+            sb.AppendLine("For RECOMMENDATIONS, format each as follows (use this exact format):");
+            sb.AppendLine("RECOMMENDATION:");
+            sb.AppendLine("Title: [Short actionable title]");
+            sb.AppendLine("Description: [Brief explanation why this matters]");
+            sb.AppendLine("Action: [Specific action to take]");
+            sb.AppendLine("Category: [One of: Upsell, Pricing, Marketing, Inventory, Customer]");
+            sb.AppendLine("Priority: [One of: High, Medium, Low]");
+            sb.AppendLine();
+            sb.AppendLine("Focus on actionable, seller-focused language. Examples:");
+            sb.AppendLine("- Focus on upselling high-margin products");
+            sb.AppendLine("- Adjust pricing strategy for specific categories");
+            sb.AppendLine("- Target marketing campaigns for underperforming segments");
+            sb.AppendLine("- Bundle complementary products");
+            sb.AppendLine("- Improve conversion for specific product categories");
             sb.AppendLine();
             sb.AppendLine("Format your response with clear section headers.");
 
@@ -178,6 +220,9 @@ namespace RetailMonolith.Services
                 insight.Summary = sections[1].Trim();
                 insight.Trends = sections[2].Trim();
                 insight.Recommendations = sections.Length > 3 ? sections[3].Trim() : sections[2].Trim();
+                
+                // Parse structured recommendations
+                insight.ActionableRecommendations = ParseStructuredRecommendations(response);
             }
             else
             {
@@ -188,6 +233,60 @@ namespace RetailMonolith.Services
             }
 
             return insight;
+        }
+
+        private List<ActionableRecommendation> ParseStructuredRecommendations(string response)
+        {
+            var recommendations = new List<ActionableRecommendation>();
+            
+            try
+            {
+                // Split by RECOMMENDATION: markers
+                var recSections = response.Split(new[] { "RECOMMENDATION:" }, StringSplitOptions.RemoveEmptyEntries);
+                
+                foreach (var section in recSections.Skip(1)) // Skip first section (before first RECOMMENDATION:)
+                {
+                    var rec = new ActionableRecommendation();
+                    var lines = section.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    
+                    foreach (var line in lines)
+                    {
+                        var trimmedLine = line.Trim();
+                        if (trimmedLine.StartsWith("Title:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rec.Title = trimmedLine.Substring(6).Trim();
+                        }
+                        else if (trimmedLine.StartsWith("Description:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rec.Description = trimmedLine.Substring(12).Trim();
+                        }
+                        else if (trimmedLine.StartsWith("Action:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rec.Action = trimmedLine.Substring(7).Trim();
+                        }
+                        else if (trimmedLine.StartsWith("Category:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rec.Category = trimmedLine.Substring(9).Trim();
+                        }
+                        else if (trimmedLine.StartsWith("Priority:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rec.Priority = trimmedLine.Substring(9).Trim();
+                        }
+                    }
+                    
+                    // Only add if we have at least a title
+                    if (!string.IsNullOrEmpty(rec.Title))
+                    {
+                        recommendations.Add(rec);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse structured recommendations, falling back to text-only");
+            }
+
+            return recommendations;
         }
     }
 }
